@@ -22,10 +22,10 @@ predictions from different data views to align through an agreement parameter
 ## Multi-omics Prediction and Classification of Binary IBD Disease Status
 
 In this chapter, we showcase examples of various integration paradigms (early,
-late, and intermediate fusion) using the R packages `multiview` [[@Ding2022]]
-and `SuperLearner` [@Van]. We make use of the publicly available source code
+late, and intermediate fusion) using the R packages `multiview` [@Ding2022]
+and `SuperLearner` [@Van2007]. We make use of the publicly available source code
 from the multi-omics integrated framework (`IntegratedLearner`) proposed by
-@Mallick2023.
+@Mallick2024.
 
 ## Input data
 
