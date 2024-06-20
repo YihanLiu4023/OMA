@@ -105,8 +105,8 @@ fit_data = Maaslin2(input_data     = feature_species,
 
 Unlike gene expression studies, we do not have well-defined signatures or
 modules for microbiome data. Here, we will construct data-driven modules using
-weighted gene co-expression network analysis (WGCNA) [@Langfelder2008,
-@Geistlinger2023]. We aim to ensure that the effect of disease and other
+weighted gene co-expression network analysis (WGCNA) [@Langfelder2008], 
+[@Geistlinger2023]. We aim to ensure that the effect of disease and other
 covariates has been removed by working on the residuals. Following the WGCNA
 tutorial, our first step will be to check whether there are any outliers in our
 data.
