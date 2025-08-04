@@ -981,6 +981,14 @@ bicluster_rows |> head()
 
 Let's collect information for the scatter plot.
 
+
+```{r}
+#| label: biclust_eval_toggle
+#| echo: false
+
+knitr::opts_chunk$set(eval = FALSE)
+```
+
 ```{r}
 #| label: biclust6
 
