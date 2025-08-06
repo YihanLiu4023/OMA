@@ -7,7 +7,10 @@ author: Yihan Liu, Himel Mallick
 
 # **Multimodal Mediation Analysis** {#sec-MSEA}
 
-```{r setup, echo=FALSE, results="asis"}
+```{r}
+#| label: setup
+#| echo: false
+#| results: asis
 remove(list = ls())
 invisible(gc())
 library(rebook)
@@ -28,7 +31,7 @@ layers, providing mechanistic insights into **how exposures impact outcomes**
 **via molecular pathways**.
 
 ```{r}
-#| label: fig-multimodal-mediation
+#| label: fig_multimodal_mediation
 #| fig-cap: Directed acyclic graph illustrating multimodal mediation where an exposure affects multiple mediators across modalities (microbial species and metabolites), which in turn affect the outcome. A direct path from exposure to outcome is also included (dashed). While gut microbial species biologically influence metabolite levels, for tractability in high-dimensional mediation analysis we assume species and metabolites act as conditionally independent parallel mediators given exposure, acknowledging this as an approximation
 #| echo: false
 
@@ -68,7 +71,7 @@ analysis, which typically focuses on a single mediator or a small set of
 mediators, we performed multimodal mediation analysis with R/Bioconductor 
 package \[multimedia\] [@Jiang2025] here, which can handle many potential 
 mediators across multiple data modalities. For example, species-level taxonomic 
-abundances, functional pathways, and metabolomic profiles can all serve as 
+abundances, pathways abundances, and metabolomic profiles can all serve as 
 potential mediators. This method allows us to estimate and rank each mediator’s 
 contribution while accounting for correlations between mediators in a 
 high-dimensional setting.
@@ -76,7 +79,7 @@ high-dimensional setting.
 In this example, time point (baseline vs. post-treatment) is used as the 
 treatment, and microbiome-based dysbiosis scores are used as the outcome. We 
 will first focus on the relative abundances of gut microbial species as 
-mediators, followed by functional pathways.
+mediators, followed by pathways abundances.
 
 Generally, we will proceed through the following key steps:
 
@@ -105,6 +108,9 @@ scores indicate greater microbial imbalance. We then subset to IBD subjects with
 samples collected at both baseline (visit 1) and post-treatment (visit 21).
 
 ```{r}
+#| label: iHMP_data_preprocessing
+#| message: false
+
 ##################
 # Load libraries #
 ##################
@@ -117,78 +123,94 @@ library(tidyverse)
 library(multimedia)
 library(stringr)
 library(ggplot2)
-
+library(mia)
 
 ##################
 # Load iHMP data #
 ##################
 
 # Load data
-se_relative <- curatedMetagenomicData(
+tse_relative <- curatedMetagenomicData(
   "HMP_2019_ibdmdb.relative_abundance", 
   dryrun = FALSE
   )[[1]]
 
-# Normalize to proportions (from %)
-assay(se_relative) <- assay(se_relative) / 100
+# Assign SampleID for matching
+colData(tse_relative)$SampleID <- colnames(tse_relative)
+
+# Convert relative_abundance assay to relabundance (which is in [0,1] interval)
+tse_relative <- transformAssay(tse_relative, assay.type="relative_abundance", method="relabundance")
+
+# Optionally, remove the original assay to avoid confusion between the two relative abundance versions
+assay(tse_relative, "relative_abundance") <- NULL
+
+# Remove samples with NA in the relabundance assay
+tse_relative <- tse_relative[, colSums(is.na(assay(tse_relative))) == 0]
 
 # Change the rownames names for variables of interest
-rownames(se_relative) <- sub('.*s__', '', rownames(se_relative))
-
+rownames(tse_relative) <- sub('.*s__', '', rownames(tse_relative))
+rownames(tse_relative) <- str_remove_all(rownames(tse_relative), "\\[|\\]")
+rownames(tse_relative) <- str_replace_all(rownames(tse_relative), "[: \\.,]", "_")
+safe_names <- make.names(rownames(tse_relative), unique = TRUE)
+rownames(tse_relative) <- safe_names
 
 ########################
 # Reference nonIBD set #
 ########################
 
 # Reference set: healthy
-ref_set <- colData(se_relative)$disease == "healthy"
-
+tse_relative$disease_binary <- tse_relative$disease == "healthy"
 
 ########################################
 # Calculate Bray-Curtis dissimilarity #
 ########################################
 
 # Bray-Curtis dissimilarity
-dist <- as.matrix(vegdist(t(assay(se_relative)), method = "bray", na.rm = TRUE))
-
-# Assign SampleID for matching
-colData(se_relative)$SampleID <- colnames(se_relative)
-
+diss <- as.matrix(getDissimilarity(tse_relative, method = "bray", na.rm=TRUE, assay.type = "relabundance"))
 
 #################################
 # Calculate the dysbiosis score #
 #################################
 
 # Calculate dysbiosis score for each sample
-colData(se_relative)$dysbiosis <- sapply(seq_along(ref_set), function(i) {
-  median(dist[i, ref_set & 
-              (colData(se_relative)$SampleID != colData(se_relative)$SampleID[i])], 
-         na.rm = TRUE)
-})
+# For each sample i, we compute the median distance between sample i and all reference samples in `ref_set`
+sample_ids <- colData(se_relative)$SampleID
 
+colData(se_relative)$dysbiosis <- sapply(seq_along(ref_set), function(i) {
+
+  # Logical vector indicating all other reference samples (excluding i)
+  ref_others <- ref_set & (sample_ids != sample_ids[i])
+  
+  # Compute median distance between sample i and these reference samples
+  median(dist[i, ref_others], na.rm = TRUE)
+
+})
 
 #############################################################
 # Subset to IBD only and only one post-baseline time point #
 #############################################################
 
 # Keep IBD only
-se_relative <- se_relative[, colData(se_relative)$disease != "healthy"]
+tse_relative <- tse_relative[, colData(tse_relative)$disease != "healthy"]
 
 # Visit 1 (baseline) or 25 (post)
-se_relative <- se_relative[, colData(se_relative)$visit_number %in% c(1, 21)]
+tse_relative <- tse_relative[, colData(tse_relative)$visit_number %in% c(1, 21)]
 
 # Keep subjects with both visits
-keep_subjects <- names(which(table(colData(se_relative)$subject_id) == 2))
-se_relative <- se_relative[, colData(se_relative)$subject_id %in% keep_subjects]
+keep_subjects <- names(which(table(colData(tse_relative)$subject_id) == 2))
+tse_relative <- tse_relative[, colData(tse_relative)$subject_id %in% keep_subjects]
 
 # Define time point label
-colData(se_relative)$Time_point <- ifelse(
-  colData(se_relative)$visit_number == 1, "T0", "T1"
+colData(tse_relative)$Time_point <- ifelse(
+  colData(tse_relative)$visit_number == 1, "T0", "T1"
 )
+
+# Define treatment: Pre and Post (Baseline vs. Post-baseline)
+treatment <- factor(colData(tse_relative)$Time_point, levels = c("T0", "T1"))
 
 ```
 
-Next, we will define the mediation anlaysis components. By using the processed 
+Next, we will define the mediation analysis components. By using the processed 
 data, we define:
 
 -   Treatment: time point (baseline vs. post-baseline)
@@ -200,41 +222,28 @@ multimedia function to estimate path models for the treatment-to-mediator
 (α path), mediator-to-outcome (β path), and the combined indirect effect (α×β 
 path).
 
-```{r define-mediation-data-frame}
+```{r}
+#| label: define_mediation_data_frame
+#| message: false
 
 #############################
 # Define mediation data set #
 #############################
 
-# Treatment: Pre and Post (Baseline vs. Post-baseline)
-treatment <- factor(colData(se_relative)$Time_point, levels = c("T0", "T1"))
-
 # Outcome: Dysbiosis Score
-dysbiosis <- as.numeric(colData(se_relative)$dysbiosis)
+colData(tse_relative)$dysbiosis <- as.numeric(colData(tse_relative)$dysbiosis)
 
 # Mediators (scaled, directly from SE): Species
-M <- t(assay(se_relative))
-M <- scale(M)
-M_clean <- M[, colSums(is.na(M)) == 0]
-
-# clean mediator names
-raw <- colnames(M_clean)
-clean1 <- str_remove_all(raw, "\\[|\\]")
-clean2 <- str_replace_all(clean1, "[: \\.,]", "_")
-
-# Save the final safe names
-safe_names <- make.names(clean2, unique = TRUE)
-
-# Apply names
-colnames(M_clean) <- safe_names
+tse_relative <- transformAssay(tse_relative, assay.type="relabundance", method="standardize", name="scaled")
+M <- assay(tse_relative, "scaled")
 
 # Convert to tibble
-mediators <- as_tibble(M_clean)
+mediators <- as_tibble(M)
 
 # Create the mediation data frame
 df <- data.frame(
   treatment = treatment,
-  dysbiosis = dysbiosis
+  dysbiosis = tse_relative$dysbiosis
 ) %>%
   bind_cols(mediators)
 
@@ -244,7 +253,9 @@ We now fit the multimodal mediation model and inspect the overall indirect and
 direct effects to understand whether microbiome composition mediates the 
 treatment's effect on dysbiosis.
 
-```{r overall-mediation-analysis}
+```{r}
+#| label: overall_mediation_analysis
+#| message: false
 
 #############################
 # Run mediation (non-delta) #
@@ -269,7 +280,9 @@ print(direct_effect(res, exper))
 
 ```
 
-```{r specific-mediation}
+```{r}
+#| label: specific_mediation
+#| message: false
 
 #############################
 # Mediator-specific effects
@@ -306,7 +319,9 @@ To quantify uncertainty around the indirect effects, we use non-parametric
 bootstrap resampling to compute **95% confidence intervals** for both the 
 overall and mediator-specific indirect effects.
 
-```{r visualization-for-overall-indirect-effects}
+```{r}
+#| label: visualization_for_overall_indirect_effects
+#| message: false
 
 #####################################
 # Bootstrap overall indirect effect # 
@@ -333,7 +348,9 @@ Finally, we visualize the **mediator-specific indirect effects** using a forest
 plot, displaying point estimates and 95% CIs to highlight the most influential 
 mediators.
 
-```{r visualization-for-mediation-specific-indirect-effects}
+```{r}
+#| label: visualization_for_mediation_specific_indirect_effects
+#| message: false
 
 ###############################################
 # Bootstrap mediator-specific indirect effect # 
@@ -395,74 +412,93 @@ ggplot(summary_df, aes(x=estimate, y=reorder(mediator, estimate), color=signific
 
 ```
 
-Based on the forest plot results, we can see that the agathobaculum 
-butyriciproducens and escherichia coli pathways has significant indirect 
+Based on the forest plot results, we can see that the Agathobaculum 
+butyriciproducens and Escherichia coli pathways has significant indirect 
 mediation effects.
 
 Next we repeat the mediation analysis with the iHMP pathway abundances using the 
 same setup as before, using the time point as the treatment, dysbiosis score as 
-the outcome, but functional pathway abundance as the mediation variables instead 
+the outcome, but pathways abundances as the mediation variables instead 
 of the relative species abundance.
 
-### Performing multimodal mediation analysis for functional pathway abundance {#sec-pathway-abundance}
+### Performing multimodal mediation analysis for pathways abundances {#sec-pathways-abundances}
 
 Let's extract the pathway abundance data from the iHMP data first, as well as 
 other data pre-processing.
 
-```{r load-pkg-data}
+```{r}
+#| label: load_pkg_data
+#| message: false
 
-se_pathway <- curatedMetagenomicData(
+tse_pathway <- curatedMetagenomicData(
   "HMP_2019_ibdmdb.pathway_abundance", 
   dryrun = FALSE
   )[[1]]
 
-rows_to_keep <- !grepl("\\|", rownames(se_pathway))
-rows_to_keep[which(rows_to_keep)[1:2]] <- FALSE
-se_pathway <- se_pathway[rows_to_keep, ]
-assay(se_pathway) <- assay(se_pathway) / 100
-ref_set <- colData(se_pathway)$disease == "healthy"
+colData(tse_pathway)$SampleID <- colnames(tse_pathway)
+tse_pathway <- tse_pathway[, colSums(is.na(assay(tse_pathway))) == 0]
 
-dist <- as.matrix(vegdist(t(assay(se_pathway)), method = "bray", na.rm = TRUE))
-colData(se_pathway)$SampleID <- colnames(se_pathway)
-colData(se_pathway)$dysbiosis <- sapply(seq_along(ref_set), function(i) {
-  median(dist[i, ref_set & 
-              (colData(se_pathway)$SampleID != colData(se_pathway)$SampleID[i])], 
+# Clean the pathway names
+pwy <- rownames(tse_pathway)
+pwy <- gsub("PWY0\\.", "PWY0-", pwy) # PWY0.xxx → PWY0-xxx
+pwy <- gsub("PWY\\.", "PWY-", pwy) # PWY.xxx → PWY-xxx
+pwy <- gsub("\\.", " ", pwy) # leftover dots → spaces
+pwy <- gsub("__", ": ", pwy) # double underscores → colon
+pwy <- gsub("_\\.", " ", pwy) # underscore then dot → space
+pwy <- gsub("_", " ", pwy) # remaining underscores → space
+pwy <- gsub("\\.\\.", " ", pwy) # double dots → space
+pwy <- gsub("\\.$", "", pwy) # remove ending period
+# pwy <- trimws(pwy) # final cleanup
+rownames(summary_df) <- pwy
+
+rows_to_keep <- !grepl("\\|", rownames(tse_pathway))
+rows_to_keep[which(rows_to_keep)[1:2]] <- FALSE
+tse_pathway <- tse_pathway[rows_to_keep, ]
+assay(tse_pathway) <- assay(tse_pathway) / 100
+tse_pathway$disease_binary <- colData(tse_pathway)$disease == "healthy"
+
+diss <- as.matrix(vegdist(t(assay(tse_pathway)), method = "bray", na.rm = TRUE))
+colData(tse_pathway)$dysbiosis <- sapply(seq_along(tse_pathway$disease_binary), function(i) {
+  median(diss[i, tse_pathway$disease_binary & 
+              (colData(tse_pathway)$SampleID != colData(tse_pathway)$SampleID[i])], 
          na.rm = TRUE)
 })
 
-se_pathway <- se_pathway[, colData(se_pathway)$disease != "healthy"]
-se_pathway <- se_pathway[, colData(se_pathway)$visit_number %in% c(1, 27)]
-keep_subjects <- names(which(table(colData(se_pathway)$subject_id) == 2))
-se_pathway <- se_pathway[, colData(se_pathway)$subject_id %in% keep_subjects]
+tse_pathway <- tse_pathway[, colData(tse_pathway)$disease != "healthy"]
+tse_pathway <- tse_pathway[, colData(tse_pathway)$visit_number %in% c(1, 27)]
+keep_subjects <- names(which(table(colData(tse_pathway)$subject_id) == 2))
+tse_pathway <- tse_pathway[, colData(tse_pathway)$subject_id %in% keep_subjects]
 
-colData(se_pathway)$Time_point <- ifelse(
-  colData(se_pathway)$visit_number == 1, "T0", "T1"
+colData(tse_pathway)$Time_point <- ifelse(
+  colData(tse_pathway)$visit_number == 1, "T0", "T1"
 )
+
+treatment <- factor(colData(tse_pathway)$Time_point, levels = c("T0", "T1"))
 
 ```
 
 We will define the mediation analysis data set then.
 
-```{r define-mediation-data-frame}
+```{r}
+#| label: define_mediation_data_frame
+#| message: false
 
-treatment <- factor(colData(se_pathway)$Time_point, levels = c("T0", "T1"))
-dysbiosis <- as.numeric(colData(se_pathway)$dysbiosis)
+colData(tse_pathway)$dysbiosis <- as.numeric(colData(tse_pathway)$dysbiosis)
 
-M <- t(assay(se_pathway))
-M <- scale(M)
-M_clean <- M[, colSums(is.na(M)) == 0]
+tse_pathway <- transformAssay(tse_pathway, assay.type="relabundance", method="standardize", name="scaled")
+M <- assay(tse_pathway, "scaled")
 
-raw <- colnames(M_clean)
+raw <- colnames(M)
 clean1 <- str_remove_all(raw, "\\[|\\]")
 clean2 <- str_replace_all(clean1, "[: \\.,]", "_")
 safe_names <- make.names(clean2, unique = TRUE)
-colnames(M_clean) <- safe_names
+colnames(M) <- safe_names
 
-mediators <- as_tibble(M_clean)
+mediators <- as_tibble(M)
 
 df <- data.frame(
   treatment = treatment,
-  dysbiosis = dysbiosis
+  dysbiosis = tse_pathway$dysbiosis
 ) %>%
   bind_cols(mediators)
 
@@ -471,7 +507,9 @@ df <- data.frame(
 Next, we continue to fit the multimodal mediation model, and extract the overall 
 and mediation-specific indirect effects.
 
-```{r mediation-analysis}
+```{r}
+#| label: mediation_analysis
+#| message: false
 
 exper <- mediation_data(
   df,
@@ -508,7 +546,9 @@ print(top_mediators)
 The non-parametric bootstrap resampling is also used to compute **95% CIs** for 
 both the overall and mediator-specific pathway indirect effects.
 
-```{r visualization-for-overall-indirect-effects}
+```{r}
+#| label: visualization_for_overall_indirect_effects
+#| message: false
 
 set.seed(1234)
 boot_overall <- bootstrap(mdl, exper, c(indirect = indirect_overall), B = 100)
@@ -529,7 +569,9 @@ ggplot(boot_overall$indirect) +
 We visualize the **mediator-specific indirect effects** using a forest plot for 
 pathway aubundance as well. with the point estimates and 95% CIs.
 
-```{r visualization-for-mediation-specific-indirect-effects}
+```{r}
+#| label: visualization_for_mediation_specific_indirect_effects
+#| message: false
 
 indirect_each <- function(mdl, exper) {
   res <- estimate(mdl, exper)
@@ -570,6 +612,11 @@ pwy <- gsub("\\.\\.", " ", pwy) # double dots → space
 pwy <- gsub("\\.$", "", pwy) # remove ending period
 # pwy <- trimws(pwy) # final cleanup
 rownames(summary_df) <- pwy
+
+
+
+
+
 
 ggplot(summary_df, aes(x=estimate, y=reorder(mediator, estimate), color=significant)) +
   geom_point() +
