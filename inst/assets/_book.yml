@@ -45,7 +45,7 @@ book:
       chapters:
         - pages/composition.qmd
         - pages/alpha_diversity.qmd
-        - pages/beta_diversity.qmd
+        - pages/community_similarity.qmd
         - pages/clustering.qmd
     - part: "Association"
       chapters:
@@ -73,12 +73,11 @@ book:
       chapters:
         - pages/support.qmd
         - pages/resources.qmd
-        - pages/acknowledgments.qmd
+        - pages/contributions.qmd
   appendices:
     - pages/msea.qmd
     - pages/mmuphin_meta_analysis.qmd
-    - pages/extra_material.qmd
-    - pages/visualization.qmd
+    - pages/phyloseq_cheatsheet.qmd
     - pages/example_solutions.qmd
     - pages/session_info.qmd
   favicon: assets/favicon.png
