@@ -174,15 +174,15 @@ diss <- as.matrix(getDissimilarity(tse_relative, method = "bray", na.rm=TRUE, as
 
 # Calculate dysbiosis score for each sample
 # For each sample i, we compute the median distance between sample i and all reference samples in `ref_set`
-sample_ids <- colData(se_relative)$SampleID
+sample_ids <- colData(tse_relative)$SampleID
 
-colData(se_relative)$dysbiosis <- sapply(seq_along(ref_set), function(i) {
+colData(tse_relative)$dysbiosis <- sapply(seq_along(tse_relative$disease_binary), function(i) {
 
   # Logical vector indicating all other reference samples (excluding i)
-  ref_others <- ref_set & (sample_ids != sample_ids[i])
+  ref_others <- tse_relative$disease_binary & (sample_ids != sample_ids[i])
   
   # Compute median distance between sample i and these reference samples
-  median(dist[i, ref_others], na.rm = TRUE)
+  median(diss[i, ref_others], na.rm = TRUE)
 
 })
 
@@ -235,7 +235,7 @@ colData(tse_relative)$dysbiosis <- as.numeric(colData(tse_relative)$dysbiosis)
 
 # Mediators (scaled, directly from SE): Species
 tse_relative <- transformAssay(tse_relative, assay.type="relabundance", method="standardize", name="scaled")
-M <- assay(tse_relative, "scaled")
+M <- t(assay(tse_relative, "scaled"))
 
 # Convert to tibble
 mediators <- as_tibble(M)
@@ -438,19 +438,6 @@ tse_pathway <- curatedMetagenomicData(
 colData(tse_pathway)$SampleID <- colnames(tse_pathway)
 tse_pathway <- tse_pathway[, colSums(is.na(assay(tse_pathway))) == 0]
 
-# Clean the pathway names
-pwy <- rownames(tse_pathway)
-pwy <- gsub("PWY0\\.", "PWY0-", pwy) # PWY0.xxx → PWY0-xxx
-pwy <- gsub("PWY\\.", "PWY-", pwy) # PWY.xxx → PWY-xxx
-pwy <- gsub("\\.", " ", pwy) # leftover dots → spaces
-pwy <- gsub("__", ": ", pwy) # double underscores → colon
-pwy <- gsub("_\\.", " ", pwy) # underscore then dot → space
-pwy <- gsub("_", " ", pwy) # remaining underscores → space
-pwy <- gsub("\\.\\.", " ", pwy) # double dots → space
-pwy <- gsub("\\.$", "", pwy) # remove ending period
-# pwy <- trimws(pwy) # final cleanup
-rownames(summary_df) <- pwy
-
 rows_to_keep <- !grepl("\\|", rownames(tse_pathway))
 rows_to_keep[which(rows_to_keep)[1:2]] <- FALSE
 tse_pathway <- tse_pathway[rows_to_keep, ]
@@ -485,8 +472,8 @@ We will define the mediation analysis data set then.
 
 colData(tse_pathway)$dysbiosis <- as.numeric(colData(tse_pathway)$dysbiosis)
 
-tse_pathway <- transformAssay(tse_pathway, assay.type="relabundance", method="standardize", name="scaled")
-M <- assay(tse_pathway, "scaled")
+tse_pathway <- transformAssay(tse_pathway, assay.type="pathway_abundance", method="standardize", name="scaled")
+M <- t(assay(tse_pathway, "scaled"))
 
 raw <- colnames(M)
 clean1 <- str_remove_all(raw, "\\[|\\]")
